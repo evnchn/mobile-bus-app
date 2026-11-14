@@ -10,6 +10,7 @@ import {
   stopLocationUpdatesAsync,
 } from "expo-location";
 import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AsyncAlert, AsyncConsent } from "./asyncAlert";
 
 Notifications.setNotificationHandler({
@@ -22,6 +23,7 @@ Notifications.setNotificationHandler({
 });
 
 const LOCATION_NOTIFICATION_TASK_NAME = "background-notification-location";
+const TARGET_KEY = "stopAlarmTarget";
 
 const targetLocation = {
   latitude: 0,
@@ -72,11 +74,16 @@ const setStopAlarm = async () => {
   return true;
 };
 
+const clearTarget = () => {
+  targetLocation.latitude = 0;
+  targetLocation.longitude = 0;
+  targetLocation.stopId = "";
+  AsyncStorage.removeItem(TARGET_KEY);
+};
+
 export const toggleAlarm = async ({ stopId, title, body, lat, lng }: any) => {
   if (targetLocation.stopId === stopId) {
-    targetLocation.latitude = 0;
-    targetLocation.longitude = 0;
-    targetLocation.stopId = "";
+    clearTarget();
     try { 
       stopLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME);
     } catch (e) {
@@ -89,7 +96,14 @@ export const toggleAlarm = async ({ stopId, title, body, lat, lng }: any) => {
     targetLocation.body = body;
     targetLocation.latitude = lat;
     targetLocation.longitude = lng;
-    return await setStopAlarm();
+    const ok = await setStopAlarm().catch(() => false);
+    if (ok) {
+      // The task may later run in a fresh JS context (app killed), so persist the target.
+      await AsyncStorage.setItem(TARGET_KEY, JSON.stringify(targetLocation));
+    } else {
+      clearTarget();
+    }
+    return ok;
   }
 };
 
@@ -106,12 +120,21 @@ export const postAlarmToWebView = (
 
 TaskManager.defineTask(
   LOCATION_NOTIFICATION_TASK_NAME,
-  throttle(({ data: { locations }, error }: { data: any; error: any }) => {
+  throttle(async ({ data: { locations }, error }: { data: any; error: any }) => {
     if (error) {
       return;
     }
+    if (!targetLocation.stopId) {
+      const saved = await AsyncStorage.getItem(TARGET_KEY);
+      if (!saved) {
+        stopLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME).catch(() => {});
+        return;
+      }
+      Object.assign(targetLocation, JSON.parse(saved));
+    }
     if (locations && Array.isArray(locations) && locations.length) {
-      if (getDistance(targetLocation, locations[0].coords) < 500) {
+      // Batched updates arrive oldest first; any fix inside the radius counts.
+      if (locations.some((l: any) => getDistance(targetLocation, l.coords) < 500)) {
         Notifications.scheduleNotificationAsync({
           content: {
             title: targetLocation.title,
