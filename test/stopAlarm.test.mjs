@@ -1,0 +1,72 @@
+import { test, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { bundle } from "./build.mjs";
+import { reset } from "./mocks.mjs";
+
+const file = join(tmpdir(), `stopAlarm-${process.pid}.mjs`);
+writeFileSync(file, await bundle());
+let n = 0;
+// Each load is a fresh module instance: same as a new JS context after process death.
+const load = () => import(`${file}?v=${n++}`);
+const S = globalThis.__alarm;
+const TASK = "background-notification-location";
+const stop = { stopId: "S1", title: "Stop", body: "Arrived", lat: 22.3, lng: 114.17 };
+const near = { coords: { latitude: 22.3005, longitude: 114.17 } }; // ~55 m
+const far = { coords: { latitude: 22.4, longitude: 114.17 } }; // ~11 km
+const run = async (locations) => { await S.tasks[TASK]({ data: { locations }, error: null }); await new Promise((r) => setTimeout(r, 20)); };
+const posted = (mod) => { let v; mod.postAlarmToWebView({ current: { postMessage: (s) => (v = JSON.parse(s).value) } }); return v; };
+
+beforeEach(() => { reset(); S.storage.clear(); });
+
+test("happy path: arrives near the stop, notifies once and stops updates", async () => {
+  const mod = await load();
+  assert.equal(await mod.toggleAlarm(stop), true);
+  assert.equal(posted(mod), "S1");
+  await run([far]);
+  assert.equal(S.notified.length, 0);
+  await new Promise((r) => setTimeout(r, 600)); // let the 500 ms throttle window pass
+  await run([near]);
+  assert.equal(S.notified.length, 1);
+  assert.ok(S.stopped >= 1);
+});
+
+test("refused background permission does not leave the alarm shown as armed", async () => {
+  reset({ bg: "denied" });
+  const mod = await load();
+  assert.equal(await mod.toggleAlarm(stop), false);
+  assert.equal(S.started.length, 0);
+  assert.equal(posted(mod), "");
+});
+
+test("a throw from startLocationUpdatesAsync does not leave the alarm shown as armed", async () => {
+  reset({ startThrows: true });
+  const mod = await load();
+  assert.equal(await mod.toggleAlarm(stop).catch(() => false), false);
+  assert.equal(posted(mod), "");
+});
+
+test("a batched update whose newest fix is near the stop notifies", async () => {
+  const mod = await load();
+  await mod.toggleAlarm(stop);
+  await run([far, far, near]); // Android delivers deferred batches oldest first
+  assert.equal(S.notified.length, 1);
+});
+
+test("task running in a fresh JS context (after process death) still knows the target", async () => {
+  const mod = await load();
+  await mod.toggleAlarm(stop);
+  await load(); // headless relaunch re-registers the task with fresh module state
+  await run([near]);
+  assert.equal(S.notified.length, 1);
+  assert.equal(S.notified[0].title, "Stop");
+});
+
+test("task in a fresh JS context with no saved target stops the updates instead of running forever", async () => {
+  await load();
+  await run([near]);
+  assert.equal(S.notified.length, 0);
+  assert.ok(S.stopped >= 1);
+});
