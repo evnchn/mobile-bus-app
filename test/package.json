@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test" },
+  "devDependencies": { "esbuild": "0.25.10", "lodash.throttle": "4.1.1" }
+}
