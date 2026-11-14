@@ -4,7 +4,7 @@
 const m = (globalThis.__alarm ??= { storage: new Map() });
 export const reset = (over = {}) =>
   Object.assign(m, {
-    os: "android", notif: "granted", bg: "granted", startThrows: false, startImpl: null, getDelay: 0,
+    os: "android", notif: "granted", bg: "granted", startThrows: false, startImpl: null, getDelay: 0, running: false,
     started: [], stopped: 0, notified: [], tasks: {}, ...over,
   });
 
@@ -22,8 +22,10 @@ export const Location = {
     if (m.startImpl) return m.startImpl(opts);
     if (m.startThrows) throw new Error("start failed");
     m.started.push(opts);
+    m.running = true;
   },
-  stopLocationUpdatesAsync: async () => { m.stopped++; },
+  stopLocationUpdatesAsync: async () => { m.stopped++; m.running = false; },
+  hasStartedLocationUpdatesAsync: async () => m.running,
 };
 export const ReactNative = { get Platform() { return { OS: m.os }; } };
 export const AsyncAlertMod = { AsyncAlert: async () => {}, AsyncConsent: async () => true };

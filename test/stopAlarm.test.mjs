@@ -17,14 +17,14 @@ const stop = { stopId: "S1", title: "Stop", body: "Arrived", lat: 22.3, lng: 114
 const near = { coords: { latitude: 22.3005, longitude: 114.17 } }; // ~55 m
 const far = { coords: { latitude: 22.4, longitude: 114.17 } }; // ~11 km
 const run = async (locations) => { await S.tasks[TASK]({ data: { locations }, error: null }); await new Promise((r) => setTimeout(r, 20)); };
-const posted = (mod) => { let v; mod.postAlarmToWebView({ current: { postMessage: (s) => (v = JSON.parse(s).value) } }); return v; };
+const posted = async (mod) => { let v; await mod.postAlarmToWebView({ current: { postMessage: (s) => (v = JSON.parse(s).value) } }); return v; };
 
 beforeEach(() => { reset(); S.storage.clear(); });
 
 test("happy path: arrives near the stop, notifies once and stops updates", async () => {
   const mod = await load();
   assert.equal(await mod.toggleAlarm(stop), true);
-  assert.equal(posted(mod), "S1");
+  assert.equal(await posted(mod), "S1");
   await run([far]);
   assert.equal(S.notified.length, 0);
   await new Promise((r) => setTimeout(r, 600)); // let the 500 ms throttle window pass
@@ -38,14 +38,14 @@ test("refused background permission does not leave the alarm shown as armed", as
   const mod = await load();
   assert.equal(await mod.toggleAlarm(stop), false);
   assert.equal(S.started.length, 0);
-  assert.equal(posted(mod), "");
+  assert.equal(await posted(mod), "");
 });
 
 test("a throw from startLocationUpdatesAsync does not leave the alarm shown as armed", async () => {
   reset({ startThrows: true });
   const mod = await load();
   assert.equal(await mod.toggleAlarm(stop).catch(() => false), false);
-  assert.equal(posted(mod), "");
+  assert.equal(await posted(mod), "");
 });
 
 test("a batched update whose newest fix is near the stop notifies", async () => {
@@ -74,12 +74,12 @@ test("task in a fresh JS context with no saved target stops the updates instead 
 test("arming B while a fresh task is still reading saved stop A keeps B", async () => {
   const first = await load();
   await first.toggleAlarm(stop); // saves S1
+  S.getDelay = 50; // the restore read of S1 is still pending while B arms
   const mod = await load(); // fresh context, empty memory
-  S.getDelay = 50;
-  const pending = run([far]); // task starts reading S1 from storage
+  const pending = run([far]);
   await mod.toggleAlarm({ ...stop, stopId: "B", title: "B stop" });
   await pending;
-  assert.equal(posted(mod), "B");
+  assert.equal(await posted(mod), "B");
   assert.equal(JSON.parse(S.storage.get("stopAlarmTarget")).stopId, "B");
 });
 
@@ -93,6 +93,32 @@ test("an older arm that fails late does not clear a newer armed stop", async () 
   assert.equal(await mod.toggleAlarm({ ...stop, stopId: "B" }), true);
   rejectA(new Error("late failure"));
   assert.equal(await a, false);
-  assert.equal(posted(mod), "B");
+  assert.equal(await posted(mod), "B");
   assert.equal(JSON.parse(S.storage.get("stopAlarmTarget")).stopId, "B");
+});
+
+test("after the app is killed and reopened, a still-running alarm shows as armed", async () => {
+  const first = await load();
+  await first.toggleAlarm(stop);
+  const mod = await load();
+  assert.equal(await posted(mod), "S1");
+});
+
+test("after reopen, an early tap on the still-running stop disarms it", async () => {
+  const first = await load();
+  await first.toggleAlarm(stop); // updates running, S1 saved
+  S.getDelay = 30; // the user taps before the restore read returns
+  const mod = await load(); // app reopened: fresh JS context
+  assert.equal(await mod.toggleAlarm(stop), true); // the tap is a disarm
+  assert.equal(await posted(mod), "");
+  assert.equal(S.running, false);
+});
+
+test("a saved target whose updates are no longer running is dropped on reopen", async () => {
+  const first = await load();
+  await first.toggleAlarm(stop);
+  S.running = false; // e.g. the OS stopped the updates
+  const mod = await load();
+  assert.equal(await posted(mod), "");
+  assert.equal(S.storage.has("stopAlarmTarget"), false);
 });

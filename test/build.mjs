@@ -5,7 +5,7 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 const map = {
   "expo-task-manager": "export const defineTask = (...a) => M.TaskManager.defineTask(...a);",
   "expo-notifications": "export const {setNotificationHandler, requestPermissionsAsync, scheduleNotificationAsync} = M.Notifications;",
-  "expo-location": "export const {Accuracy, getBackgroundPermissionsAsync, requestBackgroundPermissionsAsync, startLocationUpdatesAsync, stopLocationUpdatesAsync} = M.Location;",
+  "expo-location": "export const {Accuracy, getBackgroundPermissionsAsync, requestBackgroundPermissionsAsync, startLocationUpdatesAsync, stopLocationUpdatesAsync, hasStartedLocationUpdatesAsync} = M.Location;",
   "react-native": "export const Platform = { get OS() { return M.ReactNative.Platform.OS; } };",
   "react-native-webview": "export default {};",
   "./asyncAlert": "export const {AsyncAlert, AsyncConsent} = M.AsyncAlertMod;",

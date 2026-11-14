@@ -8,6 +8,7 @@ import {
   getBackgroundPermissionsAsync,
   startLocationUpdatesAsync,
   stopLocationUpdatesAsync,
+  hasStartedLocationUpdatesAsync,
 } from "expo-location";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -32,6 +33,18 @@ const targetLocation = {
   title: "Arrived",
   body: "Here",
 };
+
+// Location updates outlive the app process, so a fresh JS context (app reopened,
+// or the task relaunched headless) restores the target the updates were armed for.
+const restored = (async () => {
+  const saved = await AsyncStorage.getItem(TARGET_KEY);
+  if (!saved) return;
+  if (await hasStartedLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME)) {
+    Object.assign(targetLocation, JSON.parse(saved));
+  } else {
+    AsyncStorage.removeItem(TARGET_KEY);
+  }
+})().catch(() => {});
 
 const setStopAlarm = async () => {
   const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
@@ -82,6 +95,7 @@ const clearTarget = () => {
 };
 
 export const toggleAlarm = async ({ stopId, title, body, lat, lng }: any) => {
+  await restored;
   if (targetLocation.stopId === stopId) {
     clearTarget();
     try { 
@@ -113,11 +127,13 @@ export const toggleAlarm = async ({ stopId, title, body, lat, lng }: any) => {
 export const postAlarmToWebView = (
   webViewRef: React.RefObject<WebView | null>
 ) => {
-  webViewRef?.current?.postMessage(
-    JSON.stringify({
-      type: "stop-alarm-stop-id",
-      value: targetLocation.stopId,
-    })
+  return restored.then(() =>
+    webViewRef?.current?.postMessage(
+      JSON.stringify({
+        type: "stop-alarm-stop-id",
+        value: targetLocation.stopId,
+      })
+    )
   );
 };
 
@@ -127,15 +143,11 @@ TaskManager.defineTask(
     if (error) {
       return;
     }
+    await restored;
     if (!targetLocation.stopId) {
-      const saved = await AsyncStorage.getItem(TARGET_KEY);
-      if (!targetLocation.stopId) { // re-check: a stop armed during the read is newer
-        if (!saved) {
-          stopLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME).catch(() => {});
-          return;
-        }
-        Object.assign(targetLocation, JSON.parse(saved));
-      }
+      // Nothing armed: don't keep tracking location forever.
+      stopLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME).catch(() => {});
+      return;
     }
     if (locations && Array.isArray(locations) && locations.length) {
       // Batched updates arrive oldest first; any fix inside the radius counts.
