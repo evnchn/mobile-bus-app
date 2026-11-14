@@ -122,3 +122,18 @@ test("a saved target whose updates are no longer running is dropped on reopen", 
   assert.equal(await posted(mod), "");
   assert.equal(S.storage.has("stopAlarmTarget"), false);
 });
+
+test("arrival at A while a tap on B is pending leaves B armed", async () => {
+  const first = await load();
+  await first.toggleAlarm(stop); // A = S1, running
+  S.getDelay = 30; // both callers queue behind the restore read
+  const mod = await load();
+  const arrival = run([near]);
+  const tapB = mod.toggleAlarm({ ...stop, stopId: "B", lat: 22.35, lng: 114.2 });
+  await Promise.all([arrival, tapB]);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(await posted(mod), "B");
+  const saved = JSON.parse(S.storage.get("stopAlarmTarget"));
+  assert.equal(saved.stopId, "B");
+  assert.equal(saved.latitude, 22.35);
+});

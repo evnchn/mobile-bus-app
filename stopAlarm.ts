@@ -160,8 +160,8 @@ TaskManager.defineTask(
           },
           trigger: null,
         });
-        toggleAlarm(targetLocation);
-        try { 
+        clearTarget();
+        try {
           stopLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME);
         } catch (e) {
 
