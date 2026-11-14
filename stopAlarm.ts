@@ -97,6 +97,9 @@ export const toggleAlarm = async ({ stopId, title, body, lat, lng }: any) => {
     targetLocation.latitude = lat;
     targetLocation.longitude = lng;
     const ok = await setStopAlarm().catch(() => false);
+    if (targetLocation.stopId !== stopId) {
+      return ok; // superseded by a newer toggle while waiting
+    }
     if (ok) {
       // The task may later run in a fresh JS context (app killed), so persist the target.
       await AsyncStorage.setItem(TARGET_KEY, JSON.stringify(targetLocation));
@@ -126,11 +129,13 @@ TaskManager.defineTask(
     }
     if (!targetLocation.stopId) {
       const saved = await AsyncStorage.getItem(TARGET_KEY);
-      if (!saved) {
-        stopLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME).catch(() => {});
-        return;
+      if (!targetLocation.stopId) { // re-check: a stop armed during the read is newer
+        if (!saved) {
+          stopLocationUpdatesAsync(LOCATION_NOTIFICATION_TASK_NAME).catch(() => {});
+          return;
+        }
+        Object.assign(targetLocation, JSON.parse(saved));
       }
-      Object.assign(targetLocation, JSON.parse(saved));
     }
     if (locations && Array.isArray(locations) && locations.length) {
       // Batched updates arrive oldest first; any fix inside the radius counts.

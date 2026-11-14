@@ -4,7 +4,7 @@
 const m = (globalThis.__alarm ??= { storage: new Map() });
 export const reset = (over = {}) =>
   Object.assign(m, {
-    os: "android", notif: "granted", bg: "granted", startThrows: false,
+    os: "android", notif: "granted", bg: "granted", startThrows: false, startImpl: null, getDelay: 0,
     started: [], stopped: 0, notified: [], tasks: {}, ...over,
   });
 
@@ -19,6 +19,7 @@ export const Location = {
   getBackgroundPermissionsAsync: async () => ({ status: m.bg }),
   requestBackgroundPermissionsAsync: async () => ({ status: m.bg }),
   startLocationUpdatesAsync: async (_name, opts) => {
+    if (m.startImpl) return m.startImpl(opts);
     if (m.startThrows) throw new Error("start failed");
     m.started.push(opts);
   },
@@ -27,7 +28,11 @@ export const Location = {
 export const ReactNative = { get Platform() { return { OS: m.os }; } };
 export const AsyncAlertMod = { AsyncAlert: async () => {}, AsyncConsent: async () => true };
 export const AsyncStorage = {
-  getItem: async (k) => (m.storage.has(k) ? m.storage.get(k) : null),
+  getItem: async (k) => {
+    const v = m.storage.has(k) ? m.storage.get(k) : null; // value as of the call
+    await new Promise((r) => setTimeout(r, m.getDelay));
+    return v;
+  },
   setItem: async (k, v) => { m.storage.set(k, String(v)); },
   removeItem: async (k) => { m.storage.delete(k); },
 };

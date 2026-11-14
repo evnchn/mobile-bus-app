@@ -70,3 +70,29 @@ test("task in a fresh JS context with no saved target stops the updates instead 
   assert.equal(S.notified.length, 0);
   assert.ok(S.stopped >= 1);
 });
+
+test("arming B while a fresh task is still reading saved stop A keeps B", async () => {
+  const first = await load();
+  await first.toggleAlarm(stop); // saves S1
+  const mod = await load(); // fresh context, empty memory
+  S.getDelay = 50;
+  const pending = run([far]); // task starts reading S1 from storage
+  await mod.toggleAlarm({ ...stop, stopId: "B", title: "B stop" });
+  await pending;
+  assert.equal(posted(mod), "B");
+  assert.equal(JSON.parse(S.storage.get("stopAlarmTarget")).stopId, "B");
+});
+
+test("an older arm that fails late does not clear a newer armed stop", async () => {
+  const mod = await load();
+  let rejectA;
+  S.startImpl = () => new Promise((_, rej) => { rejectA = rej; });
+  const a = mod.toggleAlarm(stop);
+  await new Promise((r) => setTimeout(r, 10));
+  S.startImpl = null;
+  assert.equal(await mod.toggleAlarm({ ...stop, stopId: "B" }), true);
+  rejectA(new Error("late failure"));
+  assert.equal(await a, false);
+  assert.equal(posted(mod), "B");
+  assert.equal(JSON.parse(S.storage.get("stopAlarmTarget")).stopId, "B");
+});
